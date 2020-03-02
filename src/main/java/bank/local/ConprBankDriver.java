@@ -8,10 +8,9 @@ package bank.local;
 /* Simple Server -- not thread safe */
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import bank.Account;
 import bank.Bank;
@@ -38,8 +37,7 @@ public class ConprBankDriver implements bank.BankDriver {
 }
 
 class ConprBank implements Bank {
-
-  private Map<String, ConprAccount> accounts = new HashMap<String, ConprAccount>();
+  private Map<String, ConprAccount> accounts = Collections.synchronizedMap (new HashMap<String, ConprAccount>());
 
   @Override
   public Set<String> getAccountNumbers() {
@@ -79,9 +77,15 @@ class ConprBank implements Bank {
 
   @Override
   public void transfer(Account from, Account to, double amount)
-      throws IOException, InactiveException, OverdrawException {
-    from.withdraw(amount);
-    to.deposit(amount);
+          throws IOException, InactiveException, OverdrawException {
+
+      from.withdraw(amount);
+      try {
+        to.deposit(amount);
+      } catch (Exception e) {
+        from.deposit(amount);
+        throw e;
+      }
   }
 }
 
@@ -92,14 +96,16 @@ class ConprAccount implements Account {
   private String owner;
   private double balance;
   private boolean active = true;
+  private Lock lock;
 
   ConprAccount(String owner) {
     this.owner = owner;
     this.number = "CONPR_ACC_" + id++;
+    this.lock = new ReentrantLock();
   }
 
   @Override
-  public double getBalance() {
+  public synchronized double getBalance() {
     return balance;
   }
 
@@ -128,7 +134,12 @@ class ConprAccount implements Account {
       throw new InactiveException("account not active");
     if (amount < 0)
       throw new IllegalArgumentException("negative amount");
-    balance += amount;
+    lock.lock();
+    try {
+      balance += amount;
+    } finally {
+      lock.unlock();
+    }
   }
 
   @Override
@@ -139,7 +150,12 @@ class ConprAccount implements Account {
       throw new IllegalArgumentException("negative amount");
     if (balance - amount < 0)
       throw new OverdrawException("account cannot be overdrawn");
-    balance -= amount;
+    lock.lock();
+    try {
+      balance -= amount;
+    } finally {
+      lock.unlock();
+    }
   }
 
 }
